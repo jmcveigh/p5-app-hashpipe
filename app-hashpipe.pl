@@ -1,12 +1,12 @@
 # hashpipe_cli.pl
 # Twitter photograph hog
-# download all JPEG media accessible by user's screen_name
+# download all JPEG media accessible by screen_name
 
 use common::sense;
 
 package Archive {
     use Moose;
-    with 'MooseX::Role::Tempdir';
+    # with 'MooseX::Role::Tempdir';
     use Archive::Tar;
     use namespace::autoclean;
     
@@ -15,6 +15,7 @@ package Archive {
         isa => 'Archive::Tar',
         required => 1,
         default => sub { Archive::Tar->new },
+        # handles => [qw(add_files add_data write)],
         handles => [qw(add_files add_data write)],
     );
     
@@ -41,7 +42,7 @@ package HashPipe_CLI {
         documentation => 'This is the filename of the .tar.gz archive which will contain the photos hogged from Twitter.',
     );
     
-    option 'user' => (
+    option 'screen-name' => (
         is => 'rw',
         isa => 'Str',
         required => 1,
@@ -61,9 +62,9 @@ package HashPipe_CLI {
     sub ensure_options {
         # just make sure the options are sane
         my ($self) = @_;
-        my ($user, $outfile) = ($self->user, $self->archive);
+        my ($screen_name, $outfile) = ($self->{'screen-name'}, $self->archive);
         
-        die "The Twitter user must contain only valid word characters." unless $user =~ m/^([\w\-\.]+)$/;
+        die "The Twitter screen name must contain only valid word characters." unless $screen_name =~ m/^([\w\-\.]+)$/;
         my ($outfile_name,$outfile_path) = (basename($self->archive), dirname($self->archive));
         
         die "The Twitter archive must be in a path to which you can write." unless -w $outfile_path;
@@ -72,7 +73,7 @@ package HashPipe_CLI {
 
     sub connect_to_twttr {
         my ($self) = @_;
-        # username jason_mcveigh for app
+        # screen name jason_mcveigh for app
         $self->_twttr(Net::Twitter::Lite::WithAPIv1_1->new(
             consumer_key => 'haUdBgll2xvgqY27ZPGQSQ0Ff',
             consumer_secret => 'VbvgvOowMBw81Q1BEZwlenpmVHNmaUfI56UwrolfZgYcnpb2c9',
@@ -85,7 +86,7 @@ package HashPipe_CLI {
     
     sub get_user_timeline {
         my ($self) = @_;
-        my $users = $self->_twttr->lookup_users({ screen_name => $self->user });
+        my $users = $self->_twttr->lookup_users({ screen_name => $self->{'screen-name'} });
 
         my @updates;
         
@@ -152,7 +153,7 @@ package HashPipe_CLI {
                 # add photograph to archive
                 # $self->_tar->add_files(($tmp_photo_outfile));
                 
-                $self->_tar->add_data($tmp_photo_outfile_basename, $buf, { name => $tmp_photo_outfile_basename, prefix => $self->user });
+                $self->_tar->add_data($tmp_photo_outfile_basename, $buf, { name => $tmp_photo_outfile_basename, prefix => $self->{'screen-name'} });
                 
                 $idx++;
             }
