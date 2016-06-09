@@ -1,0 +1,54 @@
+#!C:\Program Files (x86)\ActiveState Perl Dev Kit 9.5.1\bin\perlapp-gui.exe
+PAP-Version: 1.0
+Packer: C:\Program Files (x86)\ActiveState Perl Dev Kit 9.5.1\bin\perlapp.exe
+Script: app-hashpipe.pl
+Cwd: C:\Users\Jason McVeigh\Desktop\GitHub\p5-app-hashpipe
+Add: Moose::Meta::Attribute::Native::Trait::Array
+Add: Moose::Meta::Method::Accessor::Native::Array::
+Add: Moose::Meta::Method::Accessor::Native::Collection::
+Add: Moose::Meta::Method::Accessor::Native::Counter::
+Add: Moose::Meta::Attribute::Native::Trait::Counter
+Add: MooseX::App::Plugin::Color
+Add: MooseX::App::Meta::Role::Class::Base
+Add: MooseX::App::Meta::Role::Class::Simple
+Add: MooseX::App::Meta::Role::Class::Documentation
+Add: MooseX::App::Plugin::Color::Meta::Class
+Add: Moose::Meta::Attribute::Native::Trait::Hash
+Add: Moose::Meta::Method::Accessor::Native::Hash::
+Add: MooseX::App::Role::Base
+Add: MooseX::App::Role::Common
+Add: arybase
+Add: Class::MethodMaker::
+Add: Net::Twitter::Lite::API::V1_1::
+Add: Net::Twitter::Lite::**
+Add: Digest::HMAC_SHA1
+Add: Net::OAuth::
+Clean: 0
+Date: 2016-06-09 09:42:01
+Debug: 
+Dependent: 0
+Dyndll: 0
+Exe: app-hashpipe.exe
+Force: 0
+Gui: 0
+Hostname: DESKTOP-A65NONN
+Manifest: 
+No-Compress: 0
+No-Logo: 0
+Runlib: 
+Shared: none
+Tmpdir: 
+Trim: Moose::Meta::Method::Accessor::Native::Counter
+Verbose: 0
+Version-Comments: 
+Version-CompanyName: 
+Version-FileDescription: 
+Version-FileVersion: 
+Version-InternalName: 
+Version-LegalCopyright: 
+Version-LegalTrademarks: 
+Version-OriginalFilename: 
+Version-ProductName: 
+Version-ProductVersion: 
+Warnings: 0
+Xclude: 0
