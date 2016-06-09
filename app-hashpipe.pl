@@ -141,7 +141,7 @@ package HashPipe_CLI {
             
             if ($buf) {
                 
-                my $tmp_photo_outfile_basename = sprintf("%04d.jpg", $idx);
+                my $tmp_photo_outfile_basename = $self->{'screen-name'} . '-' . sprintf("%04d.jpg", $idx);
                 #my $tmp_photo_outfile = $self->_tar->tmpdir() . '\\' . $tmp_photo_outfile_basename;
 
                 # write photograph to tmpdir with twitter defined filename
