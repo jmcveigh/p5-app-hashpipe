@@ -1,6 +1,6 @@
 # p5-app-hashpipe
 
-This is a Twitter photo hog used to download all accessible photographs from the specified Twitter screen name.
+This is a command line application intended to be a photo hog used to download all accessible photographs or animations from a specified Twitter screen name or Reddit subreddit.
 
 This is a completed works, in part, by Jason McVeigh of General Software Contracting and the Linux User Group in Orillia, ON, CA.
 
