@@ -50,7 +50,8 @@ package Archive {
     use Moose;
     with 'MooseX::Role::Tempdir';
     use Archive::Zip;
-    use namespace::autoclean;
+    use File::Path qw(remove_tree);   
+    use namespace::autoclean;    
     
     has 'zip' => (
         is => 'ro',
@@ -59,6 +60,11 @@ package Archive {
         default => sub {  Archive::Zip->new },
     );
     
+    sub remove_tmpdir {
+        my ($self) = @_;
+        remove_tree($self->tmpdir, { safe => 1 }) if (-e $self->tmpdir);
+    }
+    
     __PACKAGE__->meta->make_immutable;
 }
 
@@ -66,13 +72,20 @@ package HashPipe_CLI {
     use common::sense;
     
     use MooseX::App::Simple qw(Color);
+    
+    use Data::Dumper;
+    
+    use List::Flatten;    
     use File::Basename;
-    use Net::Twitter::Lite::WithAPIv1_1;
-    use Reddit::Client;
     use LWP::Simple;
+    
     use Archive::Zip;
+    
+    use Net::Twitter::Lite::WithAPIv1_1;    
+    use Reddit::Client;
+    use Flickr::API;
+    
     use Term::ProgressBar::Simple;
-    use List::Flatten;
     
     use feature 'say';
     
@@ -110,7 +123,13 @@ package HashPipe_CLI {
     option 'subreddit' => (
         is => 'rw',
         isa => 'Str',
-        documentation => 'This is the subreddit for which to hog photos',
+        documentation => 'This is the subreddit for which to hog photos.',
+    );
+    
+    option 'yahoo-id' => (
+        is => 'rw',
+        isa => 'Str',
+        documentation => 'This is the Flickr Yahoo ID for which to hog photos.'
     );
     
     has '_twttr' => (
@@ -123,6 +142,16 @@ package HashPipe_CLI {
         isa => 'MyRedditClient',
     );
     
+    has '_flickr' => (
+        is => 'rw',
+        isa => 'Flickr::API',
+    );
+    
+    has '_log' => (
+        is => 'rw',
+        isa => 'Log::Dispatch::Screen',
+    );
+    
     has '_archive' => (
         is => 'rw',
         isa => 'Archive',
@@ -132,7 +161,7 @@ package HashPipe_CLI {
     sub _ensure_options {
         # just make sure the options are sane
         my ($self) = @_;
-        my ($screen_name, $subreddit, $outfile) = ($self->{'screen-name'}, $self->{'subreddit'}, $self->archive);
+        my ($screen_name, $subreddit, $yahoo_id, $outfile) = ($self->{'screen-name'}, $self->{'subreddit'}, $self->{'yahoo-id'},$self->archive);
         
         if ($self->{'screen-name'}) {
             die "The Twitter screen name must contain only valid word characters." unless $screen_name =~ m/^([\w\-\.]+)$/;
@@ -142,8 +171,12 @@ package HashPipe_CLI {
             die "The subreddit must contain only valid word characters." unless $subreddit =~ m/^([\w\-\.]+)$/;
         }
         
-        if (!$self->{'screen-name'} && !$self->{'subreddit'}) {
-            die 'One of the following streams of photos must be specified : [--screen-name, --subreddit]'
+        if ($self->{'yahoo-id'}) {
+            die "The yahoo-id must contain only valid word characters and spaces." unless $yahoo_id =~ m/^([\w\-\. ]+)$/;
+        }
+        
+        if (!$self->{'screen-name'} && !$self->{'subreddit'} && !$self->{'yahoo-id'}) {
+            die 'One of the following streams of photos must be specified : [--screen-name, --subreddit, --yahoo-id]';
         }
         
         my ($outfile_name,$outfile_path) = (basename($self->archive), dirname($self->archive));
@@ -151,6 +184,91 @@ package HashPipe_CLI {
         die "The photo archive must be in a path to which you can write." unless -w $outfile_path;
         die "The photo archive must be a .zip file." unless $outfile_name =~ m/^([\w\-\.]+)(\.zip)$/;
 
+    }
+    
+    sub _get_flickr_nsid {
+        my ($self) = @_;
+        my $response = $self->_flickr->execute_method('flickr.people.findByUsername', { username => $self->{'yahoo-id'} });
+        if($response->{'success'}) {
+            return($response->{'hash'}->{'user'}->{'nsid'});
+        } else {
+            return(0);
+        }
+    }
+
+    sub _flickr_get_media {
+        my ($self) = @_;
+        my $user_id = $self->_get_flickr_nsid;
+        if ($user_id) {
+            my @media;
+            my $page = 1;
+            my $photos;
+            
+            # this is the first iteration of the fetch_links loop
+            # fetch 100 links
+            my $r1 = $self->_flickr->execute_method('flickr.people.getPhotos', { user_id => $user_id, content_type => 4, per_page => 50, page => $page });
+            if($r1->{'success'}) {
+                $photos = $r1->{'hash'}->{'photos'}->{'photo'};
+                if ($photos && ref($photos) eq 'ARRAY') {
+                    for (@{$photos}) {
+                        my $r2 = $self->_flickr->execute_method('flickr.photos.getInfo', { photo_id => $_->{'id'}, secret => $_->{'secret'}});
+                        if ($r2->{'success'}) {
+                            my $farm_id = $r2->{'hash'}->{'photo'}->{'farm'};
+                            my $server_id = $r2->{'hash'}->{'photo'}->{'server'};
+                            my $photo_id = $r2->{'hash'}->{'photo'}->{'id'};
+                            my $secret = $r2->{'hash'}->{'photo'}->{'secret'};
+                            
+                            my $media_url = "http://farm${farm_id}.static.flickr.com/${server_id}/${photo_id}_${secret}.jpg";
+                            push @media, $media_url
+                        }
+                    }
+                } elsif ($photos && ref($photos) eq 'HASH') {
+                    my $r2 = $self->_flickr->execute_method('flickr.photos.getInfo', { photo_id => $photos->{'id'}, secret => $photos->{'secret'}});
+                    if ($r2->{'success'}) {
+                        my $farm_id = $r2->{'hash'}->{'photo'}->{'farm'};
+                        my $server_id = $r2->{'hash'}->{'photo'}->{'server'};
+                        my $photo_id = $r2->{'hash'}->{'photo'}->{'id'};
+                        my $secret = $r2->{'hash'}->{'photo'}->{'secret'};
+                        
+                        my $media_url = "http://farm${farm_id}.static.flickr.com/${server_id}/${photo_id}_${secret}.jpg";
+                        push @media, $media_url
+                    }
+                }
+            }
+            
+            $page++;
+
+            # fetch 100 links
+            while (1) {
+                my $r3 = $self->_flickr->execute_method('flickr.people.getPhotos', { user_id => $user_id, content_type => 4, per_page => 50, page => $page });
+                if($r3->{'success'}) {
+                    $photos = $r3->{'hash'}->{'photos'}->{'photo'};
+                    if ($photos && ref($photos) eq 'ARRAY') {
+                        for (@{$photos}) {
+                            my $r4 = $self->_flickr->execute_method('flickr.photos.getInfo', { photo_id => $_->{'id'}, secret => $_->{'secret'}});
+                            if ($r4->{'success'}) {
+                                my $farm_id = $r4->{'hash'}->{'photo'}->{'farm'};
+                                my $server_id = $r4->{'hash'}->{'photo'}->{'server'};
+                                my $photo_id = $r4->{'hash'}->{'photo'}->{'id'};
+                                my $secret = $r4->{'hash'}->{'photo'}->{'secret'};
+                                
+                                my $media_url = "http://farm${farm_id}.static.flickr.com/${server_id}/${photo_id}_${secret}.jpg";
+                                push @media, $media_url
+                            }
+                        }
+                    } else {
+                        last;
+                    }
+                } else {
+                    last;
+                }
+                
+                $page++;
+            }
+            
+            return(\@media);        
+        }
+        return([]);        
     }
 
     sub _get_twttr_timeline {
@@ -248,18 +366,30 @@ package HashPipe_CLI {
     sub run {
         my ($self) = @_;
         
+        # validate commandline options
         $self->_ensure_options;
+        
+        # connect to appropriate networks
+        $self->_connect_to_flickr if $self->{'yahoo-id'};
         $self->_connect_to_twttr if $self->{'screen-name'};
         $self->_connect_to_reddit if $self->{'subreddit'};
 
-        my (@media,@media_twttr,@media_reddit);
+        # collect urls for media for which to download
+        my (@media,@media_twttr,@media_reddit,@media_flickr);
         
+        @media_flickr = @{$self->_flickr_get_media} if ($self->{'yahoo-id'});
         @media_twttr = @{$self->_twttr_get_media} if ($self->{'screen-name'});
         @media_reddit = @{$self->_reddit_get_media} if ($self->{'subreddit'});
         
-        @media_twttr = splice(@media_twttr,0,$self->{'limit'}) if ($self->{'screen-name'} && $self->{'limit'});
-        @media_reddit = splice(@media_reddit,0,$self->{'limit'}) if ($self->{'subreddit'} && $self->{'limit'});
+        # apply limit to each network's list of urls for media
+        if ($self->{'limit'}) {
+            @media_flickr = splice(@media_flickr,0,$self->{'limit'}) if ($self->{'yahoo-id'});
+            @media_twttr = splice(@media_twttr,0,$self->{'limit'}) if ($self->{'screen-name'});
+            @media_reddit = splice(@media_reddit,0,$self->{'limit'}) if ($self->{'subreddit'});
+        }
         
+        # create master list of media to download
+        push @media, @media_flickr;
         push @media, @media_twttr;
         push @media, @media_reddit;
         
@@ -267,41 +397,46 @@ package HashPipe_CLI {
         my $progress = Term::ProgressBar::Simple->new($media_count);
         my $idx = 0;
         
+        # download media
         for (@media) {
             my $media_url;
             my $ext = '';
             
             next unless $_;
+            
             if(m/i\.imgur/) {
+                # special case for imgur
                 m/(\w+)\.(\w+)$/;                
                 my $tag = $1;
                 
                 next unless $tag;
                 
-                # watch for GIFV which is really a web document for a player
                 $ext = $2;
                 $media_url = "http://imgur.com/download/${tag}";                
             } else {
+                # run-of-the-mill media download
                 m/\.(\w+)$/;
                 $ext = $1;
                 $media_url = $_;
             }
             
-            # download photograph from twitter
+            # download photograph from media network
             my $buf = get($media_url);
             
             if ($buf) {
                 my $tmp_photo_outfile_basename;
                 
+                # decide on filename
                 if ($self->{'prefix'}) {
                     $tmp_photo_outfile_basename = $self->{'prefix'} . '-' . sprintf("%04d.%s", $idx, $ext);
                 } else {
                     $tmp_photo_outfile_basename = sprintf("%04d.%s", $idx, $ext);
                 }
                 
+                # decide on storage location                
                 my $tmp_photo_outfile = $self->_archive->tmpdir() . '\\' . $tmp_photo_outfile_basename;
 
-                # write photograph to tmpdir with twitter defined filename
+                # write media to tmpdir
                 open OUTFILE, '>', $tmp_photo_outfile or die 'Error writing Twitter photograph to disk in the temporary folder.';
                 binmode OUTFILE;
                 print OUTFILE $buf;
@@ -323,6 +458,8 @@ package HashPipe_CLI {
         unless($self->_archive->zip->writeToFileNamed($self->archive) == Archive::Zip::AZ_OK) {
             die 'An error occurred while writing archive to disk.'
         }
+        
+        $self->_archive->remove_tmpdir;
     }
 }
 
