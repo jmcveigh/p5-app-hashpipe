@@ -84,6 +84,7 @@ package HashPipe_CLI {
     use Net::Twitter::Lite::WithAPIv1_1;    
     use Reddit::Client;
     use Flickr::API;
+    use API::Instagram;
     
     use Term::ProgressBar::Simple;
     
@@ -131,6 +132,12 @@ package HashPipe_CLI {
         isa => 'Str',
         documentation => 'This is the Flickr Yahoo ID for which to hog photos.'
     );
+
+    option 'instagram-user' => (
+        is => 'rw',
+        isa => 'Str',
+        documentation => 'This is the Instagram User for which to hog photos.'
+    );
     
     has '_twttr' => (
         is => 'rw',
@@ -147,9 +154,9 @@ package HashPipe_CLI {
         isa => 'Flickr::API',
     );
     
-    has '_log' => (
+    has '_instagram' => (
         is => 'rw',
-        isa => 'Log::Dispatch::Screen',
+        isa => 'API::Instagram',
     );
     
     has '_archive' => (
@@ -161,7 +168,7 @@ package HashPipe_CLI {
     sub _ensure_options {
         # just make sure the options are sane
         my ($self) = @_;
-        my ($screen_name, $subreddit, $yahoo_id, $outfile) = ($self->{'screen-name'}, $self->{'subreddit'}, $self->{'yahoo-id'},$self->archive);
+        my ($screen_name, $subreddit, $yahoo_id, $instagram_user, $outfile) = ($self->{'screen-name'}, $self->{'subreddit'}, $self->{'yahoo-id'}, $self->{'instagram-user'}, $self->archive);
         
         if ($self->{'screen-name'}) {
             die "The Twitter screen name must contain only valid word characters." unless $screen_name =~ m/^([\w\-\.]+)$/;
@@ -175,15 +182,56 @@ package HashPipe_CLI {
             die "The yahoo-id must contain only valid word characters and spaces." unless $yahoo_id =~ m/^([\w\-\. ]+)$/;
         }
         
-        if (!$self->{'screen-name'} && !$self->{'subreddit'} && !$self->{'yahoo-id'}) {
-            die 'One of the following streams of photos must be specified : [--screen-name, --subreddit, --yahoo-id]';
+        if ($self->{'instagram-user'}) {            
+            die "The instagram-user must contain only valid waord characters." unless $instagram_user =~ m/^([\w\-\. ]+)$/;            
+            die "This Instagram app is pending approval.  For now, the only valid instagram user is the administrator 'jwmcveigh'" unless $instagram_user eq 'jwmcveigh';
+        }
+        
+        if (!$self->{'screen-name'} && !$self->{'subreddit'} && !$self->{'yahoo-id'} && !$self->{'instagram-user'}) {
+            die 'One of the following streams of photos must be specified : [--screen-name, --subreddit, --yahoo-id, --instagram-user]';
         }
         
         my ($outfile_name,$outfile_path) = (basename($self->archive), dirname($self->archive));
         
         die "The photo archive must be in a path to which you can write." unless -w $outfile_path;
         die "The photo archive must be a .zip file." unless $outfile_name =~ m/^([\w\-\.]+)(\.zip)$/;
-
+    }
+    
+    sub _instagram_get_media {
+        my ($self) = @_;
+        my @media;
+        my @ids;
+        my $medias;
+        my $search1 = $self->_instagram->search('user');
+        my $users = $search1->find( q => $self->{'instagram-user'});
+        
+        for (@{$users}) {            
+            
+            $medias = $_->recent_medias(count => 10);
+            for (@{$medias}) {
+                my $media_url = (split(/\?/, $_->{'images'}->{'standard_resolution'}->{'url'}))[0];
+                push @media, $media_url;
+                push @ids, $_->{'id'};
+            }
+            
+            my $max_id = $ids[-1];
+            
+            while (1) {
+                $medias = $_->recent_medias(count => 10, max_id => $max_id);
+                last unless ref($medias) eq 'ARRAY';
+                for (@{$medias}) {
+                    my $media_url = (split(/\?/, $_->{'images'}->{'standard_resolution'}->{'url'}))[0];
+                    say $media_url;
+                    push @media, $media_url;
+                    push @ids, $_->{'id'};
+                }
+                my $new_max_id = $ids[-1];
+                last if ($max_id eq $new_max_id);
+                $max_id = $new_max_id;
+            }
+        }
+        
+        return(\@media);
     }
     
     sub _get_flickr_nsid {
@@ -370,25 +418,29 @@ package HashPipe_CLI {
         $self->_ensure_options;
         
         # connect to appropriate networks
-        $self->_connect_to_flickr if $self->{'yahoo-id'};
-        $self->_connect_to_twttr if $self->{'screen-name'};
-        $self->_connect_to_reddit if $self->{'subreddit'};
+        $self->_connect_to_instagram if ($self->{'instagram-user'});
+        $self->_connect_to_flickr if ($self->{'yahoo-id'});
+        $self->_connect_to_twttr if ($self->{'screen-name'});
+        $self->_connect_to_reddit if ($self->{'subreddit'});
 
         # collect urls for media for which to download
-        my (@media,@media_twttr,@media_reddit,@media_flickr);
+        my (@media,@media_twttr,@media_reddit,@media_flickr, @media_instagram);
         
+        @media_instagram = @{$self->_instagram_get_media} if ($self->{'instagram-user'});
         @media_flickr = @{$self->_flickr_get_media} if ($self->{'yahoo-id'});
         @media_twttr = @{$self->_twttr_get_media} if ($self->{'screen-name'});
         @media_reddit = @{$self->_reddit_get_media} if ($self->{'subreddit'});
         
         # apply limit to each network's list of urls for media
         if ($self->{'limit'}) {
+            @media_instagram = splice(@media_instagram,0,$self->{'limit'}) if ($self->{'instagram-user'});
             @media_flickr = splice(@media_flickr,0,$self->{'limit'}) if ($self->{'yahoo-id'});
             @media_twttr = splice(@media_twttr,0,$self->{'limit'}) if ($self->{'screen-name'});
             @media_reddit = splice(@media_reddit,0,$self->{'limit'}) if ($self->{'subreddit'});
         }
         
         # create master list of media to download
+        push @media, @media_instagram;
         push @media, @media_flickr;
         push @media, @media_twttr;
         push @media, @media_reddit;

@@ -1,6 +1,6 @@
 # p5-app-hashpipe
 
-This is a command line application intended to be a photo hog used to download all accessible photographs or animations from a specified Twitter screen name, Reddit subreddit or Flickr user.
+This is a command line application intended to be a photo hog used to download all accessible photographs or animations from a specified Twitter screen name, Reddit subreddit, Instagram account or Flickr user.
 
 This is a completed works, in part, by Jason McVeigh of General Software Contracting and the Linux User Group in Orillia, ON, CA.
 
